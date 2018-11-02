@@ -1,7 +1,6 @@
 ---
 title: "Ordinal Regression: ING-IN' across diff Tweeter genders"
 output: html_document
-author: Daisy Leigh and Sebastian Schuster
 ---
 
 ###Prelims
