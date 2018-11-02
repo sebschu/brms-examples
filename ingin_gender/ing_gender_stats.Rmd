@@ -1,0 +1,127 @@
+---
+title: "Ordinal Regression: ING-IN' across diff Tweeter genders"
+output: html_document
+author: Daisy Leigh and Sebastian Schuster
+---
+
+###Prelims
+```{r libraries,echo=FALSE,warning=FALSE,message=FALSE}
+#tidyup
+library(dplyr)
+library(magrittr)
+#viz
+library(ggplot2)
+gendPalette<- c( "#f1a340","#998ec3")
+#stats
+#library(BayesFactor)
+library(ordinal)
+library(rstan)
+library(brms)
+
+
+source('helpers.R')
+source('stan_utility.R')
+```
+
+### What is the data?
+From an experiment in which ~300 people saw one 'Tweet' each.
+
+- Four conditions in all:
+
+    - Two gender conditions ('The Tweeter is male/female')
+    - Two (ING) conditions: Tweeter uses either *walkin'* or *walking*
+
+
+#### Get data and tidy it 
+(nb, this data has already been tidied up a bunch - eg participants excluded where necessary. This notebook is really just for BRMS tute)
+```{r data_proc}
+ingin.gender <- read.csv('ing_gender.csv')
+
+#Tidy up (make factors factors, rename cols for transparency)
+cols <- 5:17 #cols to be factors
+ingin.gender %<>% rename(participant_gender = gender, 
+                 tweeter_gender = user_gender, 
+                 participant_education = education, 
+                 socialmeda_usage = socialmedia, 
+                 participant_age = age) %>%
+                 mutate_at(cols, factor) %>%
+                 dplyr::filter(participant_gender != 'Other') #iltering as so few (2) responses
+
+ingin.gender$grammar <- as.factor(ingin.gender$grammar) #oops forgot him
+```
+
+*A note on variable names and scales... the ends of the Likert items are pseudorandomized - such that in some cases, 1 represents the highest extent of the attribute, and in others, 7 does. E.g., for masculinity and femininity, most masculine/feminine = 1, least masculine/feminine = 7. The variables are named to reflect this: the first part of the variable name reflects the left side of the scale (1) and the second part, the right side (7).*
+
+
+### Ordinal regression models with `fem_not` and `masc_not` as response variables
+
+These are the frequentist ordinal regression models using `clm`.
+
+```{r frequentist_ordeinal regression}
+fem.gend.mod <- clm(factor(fem_not) ~ stim*tweeter_gender*participant_gender,  data = ingin.gender)
+summary(fem.gend.mod)
+
+masc.gend.mod <- clm(masc_not ~ stim*tweeter_gender*participant_gender,  data = ingin.gender)
+summary(masc.gend.mod)
+```
+Unsurpisingly: if particpants are told the Tweeter is a male, then they are considered much less feminine than if participants are told the Tweeter is a female (duh), and vice versa (duh).
+
+More suprising is in the interaction between participant gender and tweeter gender for femininity (marginal interaction for masculinity). See plot below (but be wary as I'm plotting means which technically I shouldn't really be doing).
+
+
+###viz this
+```{r plots, echo=FALSE}
+ingin.gender$fem_not_int <- as.integer(ingin.gender$fem_not)
+fem_plot <- ingin.gender %>%
+  group_by(participant_gender, tweeter_gender) %>%
+  summarise(mean_fem_not_int = mean(fem_not_int), CI.Low = ci.low(fem_not_int), CI.High = ci.high(fem_not_int)) %>%
+  mutate(YMin = mean_fem_not_int - CI.Low, YMax = mean_fem_not_int + CI.High) %>%
+  ggplot(aes(x=participant_gender,y=mean_fem_not_int, fill=factor(tweeter_gender))) +
+  geom_bar(stat ='identity', position="dodge") +
+  geom_errorbar(aes(ymin=YMin,ymax=YMax), width=.25, position=position_dodge(width=0.9))+
+  xlab("Participant gender") +
+  ylab("Feminine -> Not feminine") +
+  scale_fill_manual(values=gendPalette, name = "Tweeter gender", labels = c("Female", "Male"))
+fem_plot
+
+```
+
+### Ordinal regression with brms
+
+```{r brms_models, cache=TRUE}
+  # BRMS expects ordinal scales to be coded as integers
+  ingin.gender$fem_not_int = as.integer(ingin.gender$fem_not)
+
+  # estimate Bayesian ordinal regression model
+  fem.gend.bmod <- brm(
+    formula =fem_not_int ~ stim*tweeter_gender*participant_gender,
+    data = ingin.gender,
+    family = cumulative("probit") # proper distribution for likert scales
+  )
+  
+  # run model checks
+  check_all_diagnostics(fem.gend.bmod$fit)
+  
+  # plot parameter distributions
+  stanplot(fem.gend.bmod, type="hist")
+  
+  # posterior predictive check
+  pp_check(fem.gend.bmod, nsamples=100, type="bars")
+  
+  #display summary
+  summary(fem.gend.bmod)
+  
+  ## repeat all steps for model predicting "masc_not"
+  ingin.gender$masc_not_int = as.integer(ingin.gender$masc_not)
+
+  masc.gend.bmod <- brm(
+    formula =masc_not_int ~ stim*tweeter_gender*participant_gender,
+    data = ingin.gender,
+    family = cumulative("probit")
+  )  
+  check_all_diagnostics(masc.gend.bmod$fit)
+  stanplot(masc.gend.bmod, type="hist")
+  pp_check(masc.gend.bmod, nsamples=100, type="bars")
+  summary(masc.gend.bmod)
+
+```

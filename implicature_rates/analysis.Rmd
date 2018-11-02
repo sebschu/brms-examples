@@ -1,0 +1,81 @@
+---
+title: "Logistic regression: Linking hypothesis and number of response options modulate inferred scalar implicature rate"
+
+---
+
+Analysis of data from [Jasbi, Waldon, and Degen (under review)](https://sites.google.com/site/judithdegen/JasbiWaldonDegen_submitted.pdf?attredirects=0).
+
+See the manuscript for description of the variables and experimental conditions.
+
+```{r load_packages, include = FALSE}
+library(tidyverse)
+library(forcats)
+library(brms)
+library(rstan)
+source("stan_utility.R")
+theme_set(theme_bw())
+```
+
+```{r importData, warning=FALSE, echo=FALSE, message=FALSE}
+data <- read_csv("data_main.csv")
+
+data$response_type <- recode(data$response_type, quatenary = "quaternary", tertiary = "ternary")
+
+# define an implicature column for the ad-hoc and implicature trials
+pragmatic_trials <- 
+  data %>%
+  dplyr::filter(trial_type == "XY_XorY" | trial_type=="XY_X")
+
+# adding a column that defines pragmatic vs. literal
+
+# weak definition only considers the highest point on the scale as "literal" (Weak link in paper)
+pragmatic_trials$weak<-1
+pragmatic_trials[pragmatic_trials$response=="Right",]$weak <-0
+
+# strong definition only considers the lowest point on the scale as implicature (Strong link in paper)
+pragmatic_trials$strong<-0
+pragmatic_trials[pragmatic_trials$response=="Wrong",]$strong <-1
+
+implicature_rate <- 
+  pragmatic_trials %>% gather("definition","implicature", weak:strong)
+
+# changing trial type names to exhaustive vs. scalar
+implicature_rate$trial_type <-fct_recode(pragmatic_trials$trial_type, 
+                                         exhaustive = "XY_X", scalar = "XY_XorY")
+```
+
+
+
+The following commands run a Bayesian mixed-effects logistic regression model, perform several
+sanity checks and visualize the posterior probabilities over the model parameters.
+
+```{r implicatureRate, warning=FALSE}
+# The analysis takes time to run. To reproduce please run the commented lines. We have saved the results we obtained as a dataframe.
+
+library(brms)
+
+# Run Bayesian mixed-effect logistic regression model
+
+# Uncomment this line to actually run it -- but be aware that this model takes several hours to run!
+# 
+#implicature_analysis_b <- brm(implicature ~ definition * response_type * trial_type + (definition*trial_type*response_type|card) + (definition*trial_type|participant), family="bernoulli", data=implicature_rate, control = list(adapt_delta = 0.99, max_treedepth = 15))
+
+#saveRDS(implicature_analysis_b, file = "implicature_analysis_b.Rds")
+
+# Load model output from a previous run
+implicature_analysis_b <- readRDS("implicature_analysis_b.Rds")
+
+# run model checks
+check_all_diagnostics(implicature_analysis_b$fit)
+  
+# plot parameter distributions
+stanplot(implicature_analysis_b, type="hist", pars=c("^b"))
+  
+# posterior predictive check
+pp_check(implicature_analysis_b, nsamples=100, type="bars")
+  
+# display summary
+summary(implicature_analysis_b)
+
+```
+
